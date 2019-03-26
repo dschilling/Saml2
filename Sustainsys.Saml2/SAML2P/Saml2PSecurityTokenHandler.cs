@@ -18,9 +18,18 @@ namespace Sustainsys.Saml2.Saml2P
 	/// </summary>
 	public class Saml2PSecurityTokenHandler : Saml2SecurityTokenHandler
     {
-		public Saml2PSecurityTokenHandler()
+		private SPOptions spOptions;
+
+		public Saml2PSecurityTokenHandler(SPOptions spOptions)
 		{
-			Serializer = new Saml2PSerializer();
+			if (spOptions == null)
+			{
+				throw new ArgumentNullException(nameof(spOptions));
+			}
+
+			this.spOptions = spOptions;
+
+			Serializer = new Saml2PSerializer(spOptions);
 		}
 
 		// Overridden to fix the fact that the base class version uses NotBefore as the token replay expiry time

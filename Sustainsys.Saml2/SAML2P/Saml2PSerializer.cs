@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Xml;
+using Sustainsys.Saml2.Configuration;
 using static Microsoft.IdentityModel.Logging.LogHelper;
 using EncryptingCredentials = Microsoft.IdentityModel.Tokens.EncryptingCredentials;
 
@@ -45,21 +46,28 @@ namespace Sustainsys.Saml2.Saml2P
 	// - ignore authentication context if configured to do so
 	class Saml2PSerializer : Saml2Serializer
 	{
-		public ICollection<X509Certificate2> DecryptionCertificates { get; set; }
+		private SPOptions spOptions;
 
-		/// <summary>
-		/// Reads a &lt;saml:Assertion> element.
-		/// </summary>
-		/// <param name="reader">A <see cref="XmlReader"/> positioned at a <see cref="Saml2Assertion"/> element.</param>
-		/// <exception cref="ArgumentNullException">if <paramref name="reader"/> is null.</exception>
-		/// <exception cref="NotSupportedException">if assertion is encrypted.</exception>
-		/// <exception cref="Saml2SecurityTokenReadException">If <paramref name="reader"/> is not positioned at a Saml2Assertion.</exception>
-		/// <exception cref="Saml2SecurityTokenReadException">If Version is not '2.0'.</exception>
-		/// <exception cref="Saml2SecurityTokenReadException">If 'Id' is missing.</exception>>
-		/// <exception cref="Saml2SecurityTokenReadException">If 'IssueInstant' is missing.</exception>>
-		/// <exception cref="Saml2SecurityTokenReadException">If no statements are found.</exception>>
-		/// <returns>A <see cref="Saml2Assertion"/> instance.</returns>
-		public override Saml2Assertion ReadAssertion(XmlReader reader)
+		public Saml2PSerializer(SPOptions spOptions)
+		{
+			this.spOptions = spOptions;
+		}
+
+		public ICollection<X509Certificate2> DecryptionCertificates => spOptions.DecryptionServiceCertificates;
+
+        /// <summary>
+        /// Reads a &lt;saml:Assertion> element.
+        /// </summary>
+        /// <param name="reader">A <see cref="XmlReader"/> positioned at a <see cref="Saml2Assertion"/> element.</param>
+        /// <exception cref="ArgumentNullException">if <paramref name="reader"/> is null.</exception>
+        /// <exception cref="NotSupportedException">if assertion is encrypted.</exception>
+        /// <exception cref="Saml2SecurityTokenReadException">If <paramref name="reader"/> is not positioned at a Saml2Assertion.</exception>
+        /// <exception cref="Saml2SecurityTokenReadException">If Version is not '2.0'.</exception>
+        /// <exception cref="Saml2SecurityTokenReadException">If 'Id' is missing.</exception>>
+        /// <exception cref="Saml2SecurityTokenReadException">If 'IssueInstant' is missing.</exception>>
+        /// <exception cref="Saml2SecurityTokenReadException">If no statements are found.</exception>>
+        /// <returns>A <see cref="Saml2Assertion"/> instance.</returns>
+        public override Saml2Assertion ReadAssertion(XmlReader reader)
 		{
 			XmlUtil.CheckReaderOnEntry(reader, Saml2Constants.Elements.Assertion, Saml2Constants.Namespace);
 
@@ -190,7 +198,35 @@ namespace Sustainsys.Saml2.Saml2P
 			}
 		}
 
-		public virtual void WriteEncryptedAssertion(XmlWriter writer, Saml2EncryptedAssertion assertion)
+		protected override Saml2NameIdentifier ReadEncryptedId(XmlDictionaryReader reader)
+		{
+			var encrypted = new XmlDocument(reader.NameTable);
+			encrypted.PreserveWhitespace = true;
+			encrypted.LoadXml(reader.ReadOuterXml());
+			XmlElement decrypted = null;
+			foreach (var cert in DecryptionCertificates)
+			{
+				try
+				{
+					decrypted = encrypted.DocumentElement.Decrypt(cert.PrivateKey);
+					break;
+				}
+				catch (CryptographicException)
+				{
+				}
+			}
+
+			if (decrypted == null)
+			{
+				throw new InvalidOperationException(
+					"EncryptedId could not be decrypted using any available decryption certificate");
+			}
+
+			reader = XmlDictionaryReader.CreateDictionaryReader(new XmlNodeReader(decrypted.FirstChild));
+			return ReadNameIdentifier(reader, null);
+		}
+
+        public virtual void WriteEncryptedAssertion(XmlWriter writer, Saml2EncryptedAssertion assertion)
 		{
 			var doc = new XmlDocument();
 			doc.PreserveWhitespace = true;
